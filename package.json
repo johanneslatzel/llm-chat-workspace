@@ -1,8 +1,9 @@
 {
     "name": "@johannes.latzel/llm-chat-workspace",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Workspace and path-access management for the llm-chat package",
     "license": "MIT",
+    "sideEffects": false,
     "files": [
         "dist/",
         "README.md",

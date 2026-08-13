@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
 import { DirectoryConfiguration } from '../../src/lib/config.js';
 import { Workspace } from '../../src/lib/workspace.js';
-import { AccessType } from '../../src/lib/types.js';
+import { AccessPrecedence, AccessType } from '../../src/lib/types.js';
 import { withTempDir } from '../helper/temp-fs.js';
 
 describe('DirectoryConfiguration.deduplicate', () => {
@@ -67,6 +67,62 @@ describe('DirectoryConfiguration.deduplicate', () => {
         ).deduplicate();
         expect(result.accesses).toHaveLength(1);
         expect(result.accesses[0]!.type).toBe(AccessType.Write);
+    });
+
+    describe('with AccessPrecedence.LastAddedWins', () => {
+        function last(accesses: { type: AccessType; path: string }[]): DirectoryConfiguration {
+            return new DirectoryConfiguration(
+                accesses,
+                undefined,
+                undefined,
+                undefined,
+                AccessPrecedence.LastAddedWins
+            );
+        }
+
+        it('keeps the last-supplied access when a read follows a write', () => {
+            const result = last([
+                { type: AccessType.Write, path: '/tmp' },
+                { type: AccessType.Read, path: '/tmp' },
+            ]).deduplicate();
+            expect(result.accesses).toHaveLength(1);
+            expect(result.accesses[0]!.type).toBe(AccessType.Read);
+            expect(result.accesses[0]!.path).toBe(path.resolve('/tmp'));
+        });
+
+        it('keeps the last-supplied access when a write follows a read', () => {
+            const result = last([
+                { type: AccessType.Read, path: '/tmp' },
+                { type: AccessType.Write, path: '/tmp' },
+            ]).deduplicate();
+            expect(result.accesses).toHaveLength(1);
+            expect(result.accesses[0]!.type).toBe(AccessType.Write);
+        });
+
+        it('collapses exact duplicates', () => {
+            const result = last([
+                { type: AccessType.Read, path: '/tmp' },
+                { type: AccessType.Read, path: '/tmp' },
+            ]).deduplicate();
+            expect(result.accesses).toHaveLength(1);
+            expect(result.accesses[0]!.type).toBe(AccessType.Read);
+        });
+
+        it('keeps distinct paths separate', () => {
+            const result = last([
+                { type: AccessType.Read, path: '/var/log' },
+                { type: AccessType.Write, path: '/tmp' },
+            ]).deduplicate();
+            expect(result.accesses).toHaveLength(2);
+        });
+
+        it('preserves the precedence mode through deduplicate', () => {
+            const result = last([
+                { type: AccessType.Write, path: '/tmp' },
+                { type: AccessType.Read, path: '/tmp' },
+            ]).deduplicate();
+            expect(result.precedence).toBe(AccessPrecedence.LastAddedWins);
+        });
     });
 });
 
@@ -519,6 +575,7 @@ describe('DirectoryConfiguration — default constructor (from env)', () => {
         delete process.env.LLM_CHAT_WORKSPACE_PATH;
         delete process.env.LLM_CHAT_WORKSPACE_SKIP_DIRS;
         delete process.env.LLM_CHAT_WORKSPACE_RESOLVE_SYMLINKS;
+        delete process.env.LLM_CHAT_WORKSPACE_PRECEDENCE;
     });
 
     it('defaults workspace to cwd when no env vars set', () => {
@@ -631,6 +688,23 @@ describe('DirectoryConfiguration — default constructor (from env)', () => {
         const result = new DirectoryConfiguration();
         expect(result.resolveSymlinks).toBe(false);
     });
+
+    it('parses precedence from env when set to last-added-wins', () => {
+        process.env.LLM_CHAT_WORKSPACE_PRECEDENCE = 'last-added-wins';
+        const result = new DirectoryConfiguration();
+        expect(result.precedence).toBe(AccessPrecedence.LastAddedWins);
+    });
+
+    it('defaults precedence to write-wins when env is not set', () => {
+        const result = new DirectoryConfiguration();
+        expect(result.precedence).toBe(AccessPrecedence.WriteWins);
+    });
+
+    it('defaults precedence to write-wins for invalid env values', () => {
+        process.env.LLM_CHAT_WORKSPACE_PRECEDENCE = 'bogus';
+        const result = new DirectoryConfiguration();
+        expect(result.precedence).toBe(AccessPrecedence.WriteWins);
+    });
 });
 
 describe('Workspace.addAccess', () => {
@@ -680,6 +754,58 @@ describe('Workspace.addAccess', () => {
         const ws = new Workspace(new DirectoryConfiguration([{ type: AccessType.Read, path: '/a' }]));
         ws.addAccess(AccessType.Write, '/a');
         expect(ws.getAccesses()).toEqual([{ type: AccessType.Write, path: path.resolve('/a') }]);
+    });
+
+    describe('with AccessPrecedence.LastAddedWins', () => {
+        function last(accesses: { type: AccessType; path: string }[]): DirectoryConfiguration {
+            return new DirectoryConfiguration(
+                accesses,
+                undefined,
+                undefined,
+                undefined,
+                AccessPrecedence.LastAddedWins
+            );
+        }
+
+        it('downgrades a write access to read when a read is added', () => {
+            const ws = new Workspace(last([{ type: AccessType.Write, path: '/a' }]));
+            ws.addAccess(AccessType.Read, '/a');
+            expect(ws.getAccesses()).toEqual([{ type: AccessType.Read, path: path.resolve('/a') }]);
+        });
+
+        it('upgrades a read access to write when a write is added', () => {
+            const ws = new Workspace(last([{ type: AccessType.Read, path: '/a' }]));
+            ws.addAccess(AccessType.Write, '/a');
+            expect(ws.getAccesses()).toEqual([{ type: AccessType.Write, path: path.resolve('/a') }]);
+        });
+
+        it('collapses an exact duplicate add', () => {
+            const ws = new Workspace(last([{ type: AccessType.Write, path: '/a' }]));
+            ws.addAccess(AccessType.Write, '/a');
+            expect(ws.getAccesses()).toEqual([{ type: AccessType.Write, path: path.resolve('/a') }]);
+        });
+
+        it('keeps other accesses when overriding one path', () => {
+            const ws = new Workspace(
+                last([
+                    { type: AccessType.Write, path: '/a' },
+                    { type: AccessType.Write, path: '/b' },
+                ])
+            );
+            ws.addAccess(AccessType.Read, '/a');
+            expect(ws.getAccesses()).toEqual(
+                expect.arrayContaining([
+                    { type: AccessType.Write, path: path.resolve('/b') },
+                    { type: AccessType.Read, path: path.resolve('/a') },
+                ])
+            );
+        });
+
+        it('keeps currentPath when it stays inside the accesses after a downgrade', () => {
+            const ws = new Workspace(last([{ type: AccessType.Write, path: '/a' }]));
+            ws.addAccess(AccessType.Read, '/a');
+            expect(ws.currentPath).toBe(path.resolve('/a'));
+        });
     });
 });
 
@@ -811,6 +937,20 @@ describe('Workspace.getConfiguration', () => {
         expect(cfg.skipDirs).toEqual(['node_modules']);
         expect(cfg.resolveSymlinks).toBe(false);
         expect(cfg.workspacePath).toBe(path.resolve('/ws'));
+        expect(cfg.precedence).toBe(AccessPrecedence.WriteWins);
+    });
+
+    it('preserves the precedence mode', () => {
+        const ws = new Workspace(
+            new DirectoryConfiguration(
+                [{ type: AccessType.Write, path: '/a' }],
+                undefined,
+                undefined,
+                undefined,
+                AccessPrecedence.LastAddedWins
+            )
+        );
+        expect(ws.getConfiguration().precedence).toBe(AccessPrecedence.LastAddedWins);
     });
 
     it('returns a defensive copy', () => {

@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { AccessType } from './types.js';
+import { AccessPrecedence, AccessType } from './types.js';
 
 /** Configuration that defines which directories are accessible and at what permission level. */
 export class DirectoryConfiguration {
@@ -20,6 +20,12 @@ export class DirectoryConfiguration {
     workspacePath?: string | undefined;
 
     /**
+     * How duplicate accesses for the same path are resolved during deduplication.
+     * Defaults to {@link AccessPrecedence.WriteWins}.
+     */
+    precedence: AccessPrecedence;
+
+    /**
      * Constructs a directory configuration. When called with no arguments,
      * all values are read from environment variables. Pass specific arguments
      * to override individual values.
@@ -28,18 +34,21 @@ export class DirectoryConfiguration {
      * @param skipDirs - Directory names to skip. Defaults to `[]` when accesses are explicitly provided.
      * @param resolveSymlinks - Resolve symlinks before access checks. Defaults to `false` when accesses are explicitly provided.
      * @param workspacePath - Default workspace path. Defaults to resolved `LLM_CHAT_WORKSPACE_PATH` or `cwd` when reading from env.
+     * @param precedence - How duplicate accesses are resolved. Defaults to `AccessPrecedence.WriteWins` (or `LLM_CHAT_WORKSPACE_PRECEDENCE` when reading from env).
      */
     constructor(
         accesses?: { type: AccessType; path: string }[],
         skipDirs?: string[],
         resolveSymlinks?: boolean,
-        workspacePath?: string
+        workspacePath?: string,
+        precedence?: AccessPrecedence
     ) {
         if (accesses) {
             this.accesses = accesses;
             this.skipDirs = skipDirs ?? [];
             this.resolveSymlinks = resolveSymlinks ?? false;
             this.workspacePath = workspacePath;
+            this.precedence = precedence ?? AccessPrecedence.WriteWins;
         } else {
             const readDirs = parseDirs(process.env.LLM_CHAT_WORKSPACE_READ_DIRS);
             const writeDirs = parseDirs(process.env.LLM_CHAT_WORKSPACE_WRITE_DIRS);
@@ -60,29 +69,38 @@ export class DirectoryConfiguration {
             this.skipDirs = parseDirs(process.env.LLM_CHAT_WORKSPACE_SKIP_DIRS);
             this.resolveSymlinks = parseEnvBool('LLM_CHAT_WORKSPACE_RESOLVE_SYMLINKS', false);
             this.workspacePath = wsPath;
+            this.precedence = parseEnvPrecedence(process.env.LLM_CHAT_WORKSPACE_PRECEDENCE);
         }
     }
 
     /**
-     * Deduplicates directory accesses: for any path that appears multiple times,
-     * write access takes precedence over read access. Exact duplicates are removed.
+     * Deduplicates directory accesses: exact duplicates are collapsed, and for
+     * any path that appears multiple times the outcome depends on
+     * {@link AccessPrecedence} — write-wins keeps write access; last-added-wins
+     * keeps the last supplied access. Returns a new configuration that preserves
+     * all other settings, including the precedence mode.
      *
      * @returns A new directory configuration with deduplicated accesses.
      */
     deduplicate(): DirectoryConfiguration {
         const seen = new Map<string, AccessType>();
         for (const a of this.accesses) {
-            const existing = seen.get(a.path);
-            if (existing === AccessType.Write) continue;
-            if (a.type === AccessType.Write || !existing) {
+            if (this.precedence === AccessPrecedence.LastAddedWins) {
                 seen.set(a.path, a.type);
+            } else {
+                const existing = seen.get(a.path);
+                if (existing === AccessType.Write) continue;
+                if (a.type === AccessType.Write || !existing) {
+                    seen.set(a.path, a.type);
+                }
             }
         }
         return new DirectoryConfiguration(
             Array.from(seen.entries()).map(([path, type]) => ({ type, path })),
             this.skipDirs,
             this.resolveSymlinks,
-            this.workspacePath
+            this.workspacePath,
+            this.precedence
         );
     }
 }
@@ -99,4 +117,9 @@ function parseEnvBool(key: string, fallback: boolean): boolean {
     const raw = process.env[key];
     if (raw === undefined || raw === '') return fallback;
     return raw === 'true';
+}
+
+function parseEnvPrecedence(raw: string | undefined): AccessPrecedence {
+    if (raw === AccessPrecedence.LastAddedWins) return AccessPrecedence.LastAddedWins;
+    return AccessPrecedence.WriteWins;
 }

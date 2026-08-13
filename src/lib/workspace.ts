@@ -120,8 +120,10 @@ export class Workspace {
     }
 
     /**
-     * Adds a directory access entry. Write access takes precedence over read access
-     * for the same path, and exact duplicates are collapsed.
+     * Adds a directory access entry. For a path that already has an access, the
+     * outcome follows the configured access precedence: write-wins keeps write
+     * access, while last-added-wins lets the new access override the existing one.
+     * Exact duplicates are always collapsed.
      *
      * @param type - Read or write access.
      * @param dir - Directory to grant access to (resolved to an absolute path).
@@ -191,8 +193,20 @@ export class Workspace {
         const resolveSymlinks = this.cfg.resolveSymlinks;
         const workspacePath = this.cfg.workspacePath;
         return workspacePath === undefined
-            ? new DirectoryConfiguration(accesses, skipDirs, resolveSymlinks)
-            : new DirectoryConfiguration(accesses, skipDirs, resolveSymlinks, workspacePath);
+            ? new DirectoryConfiguration(
+                  accesses,
+                  skipDirs,
+                  resolveSymlinks,
+                  undefined,
+                  this.cfg.precedence
+              )
+            : new DirectoryConfiguration(
+                  accesses,
+                  skipDirs,
+                  resolveSymlinks,
+                  workspacePath,
+                  this.cfg.precedence
+              );
     }
 
     /**
@@ -242,11 +256,11 @@ export class Workspace {
     /**
      * Re-derives the internal configuration after a mutator changes the access list.
      *
-     * Deduplicates accesses (write access takes precedence over read, exact duplicates
-     * are collapsed), then ensures `currentPath` still points inside an accessible
-     * directory. The current path is kept when it is still within the accesses; otherwise
-     * `workspacePath` is used when set and accessible; otherwise the first write access is
-     * used (or the first access when no write access remains).
+     * Deduplicates accesses according to the configured access precedence, then
+     * ensures `currentPath` still points inside an accessible directory. The
+     * current path is kept when it is still within the accesses; otherwise
+     * `workspacePath` is used when set and accessible; otherwise the first write
+     * access is used (or the first access when no write access remains).
      */
     private rebuild(): void {
         this.cfg = this.cfg.deduplicate();

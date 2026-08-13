@@ -19,8 +19,18 @@ const config = new DirectoryConfiguration([
 | `skipDirs` | `string[]` | Directory names to skip when walking |
 | `resolveSymlinks` | `boolean` | Resolve symlinks before access checks |
 | `workspacePath` | `string` | The default workspace path |
+| `precedence` | `AccessPrecedence` | How duplicate accesses for the same path are resolved (default `WriteWins`) |
 
-- `deduplicate()`: returns a new configuration with overlapping accesses merged (write access wins)
+- `deduplicate()`: returns a new configuration with overlapping accesses merged (exact duplicates collapsed; the outcome for duplicate paths follows `precedence`: `WriteWins` = write access wins, `LastAddedWins` = the last supplied access wins)
+
+### `AccessPrecedence`
+
+Enum controlling how duplicate accesses for the same directory are resolved.
+
+| Member | Value | Meaning |
+|--------|-------|---------|
+| `WriteWins` | `'write-wins'` | Write access wins over read access for the same path, regardless of order (default) |
+| `LastAddedWins` | `'last-added-wins'` | The last-supplied access for a path wins, overriding any earlier one |
 
 ## Workspace
 
@@ -42,7 +52,7 @@ const workspace = new Workspace(new DirectoryConfiguration([
 | `canRead(absPath)` | `true` if the path is within a read or write directory |
 | `canWrite(absPath)` | `true` if the path is within a write directory |
 | `getAccesses()` | The configured access entries |
-| `addAccess(type, dir)` | Adds a directory access entry (write wins over read, duplicates collapsed) |
+| `addAccess(type, dir)` | Adds a directory access entry (duplicates collapsed; the outcome for an existing path follows `precedence` — write-wins keeps write access, last-added-wins overrides with the new access) |
 | `removeAccess(dir)` | Removes all access entries for the directory; throws if none would remain |
 | `setSkipDirs(dirs)` | Replaces the list of directory names skipped when walking |
 | `setResolveSymlinks(value)` | Enables or disables symlink resolution before access checks |

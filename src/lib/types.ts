@@ -8,6 +8,17 @@ export enum AccessType {
     Write = 'write'
 }
 
+/**
+ * How duplicate accesses for the same directory are resolved. Chosen via the
+ * `precedence` configuration value (default: {@link AccessPrecedence.WriteWins}).
+ */
+export enum AccessPrecedence {
+    /** Write access wins over read access for the same path, regardless of order. */
+    WriteWins = 'write-wins',
+    /** The last-supplied access for a path wins, overriding any earlier one. */
+    LastAddedWins = 'last-added-wins'
+}
+
 /** A single filesystem access entry granting a type of access to a directory. */
 export interface Access {
     /** Whether this grants read or write access to the directory. */
