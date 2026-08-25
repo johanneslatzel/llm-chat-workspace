@@ -27,7 +27,7 @@ const ws = new Workspace(new DirectoryConfiguration([
 - `canRead(absPath)`: checks if a resolved path falls within any read or write access directory
 - `canWrite(absPath)`: checks if a resolved path falls within a write access directory
 - `getAccesses()`: returns all configured directory accesses with their types and resolved paths
-- `walk(dir, onError?)`: async generator that recursively walks directories, skipping names listed in `skipDirs`
+- `walk(dir, onError?)`: async generator that recursively walks directories, skipping names listed in `skipDirs`; throws when the root path does not exist or is not a directory, while nested unreadable directories are reported via `onError`
 
 ### Path security
 

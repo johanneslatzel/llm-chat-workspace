@@ -39,21 +39,21 @@ export class Workspace {
         config: DirectoryConfiguration,
         onSwitch?: (newPath: string) => void | Promise<void>
     ) {
-        const cleaned = config.deduplicate();
-        if (cleaned.accesses.length === 0) {
+        config.deduplicate();
+        if (config.accesses.length === 0) {
             throw new Error('At least one access directory is required');
         }
-        this.cfg = cleaned;
+        this.cfg = config;
         this.mutex = new Mutex();
         this.onSwitch = onSwitch;
 
-        if (cleaned.workspacePath) {
-            this.currentPath = path.resolve(cleaned.workspacePath);
+        if (config.workspacePath) {
+            this.currentPath = path.resolve(config.workspacePath);
         } else {
-            const writeDir = cleaned.accesses.find((a) => a.type === 'write');
+            const writeDir = config.accesses.find((a) => a.type === 'write');
             this.currentPath = writeDir
                 ? path.resolve(writeDir.path)
-                : path.resolve(cleaned.accesses[0]!.path);
+                : path.resolve(config.accesses[0]!.path);
         }
 
         this.currentPath = this.resolvePath(this.currentPath);
@@ -215,6 +215,10 @@ export class Workspace {
     getAccesses(): { type: AccessType; path: string }[] {
         return this.cfg.accesses.map((a) => ({ type: a.type, path: path.resolve(a.path) }));
     }
+    /** The underlying directory configuration. Exposed so callers can mutate precedence or other settings directly. */
+    get config(): DirectoryConfiguration {
+        return this.cfg;
+    }
 
     /**
      * Returns the list of directory names to skip when walking (e.g. `node_modules`, `.git`).
@@ -222,7 +226,6 @@ export class Workspace {
     get skipDirs(): string[] {
         return this.cfg.skipDirs;
     }
-
     /**
      * Returns a diagnostic hint when a path fails access checks due to
      * possible confusion between workspace root and filesystem root.
@@ -263,7 +266,7 @@ export class Workspace {
      * access is used (or the first access when no write access remains).
      */
     private rebuild(): void {
-        this.cfg = this.cfg.deduplicate();
+        this.cfg.deduplicate();
         const allDirs = this.cfg.accesses.map((a) => path.resolve(a.path));
         if (isWithin(this.currentPath, allDirs)) return;
         const workspace = this.cfg.workspacePath ? path.resolve(this.cfg.workspacePath) : undefined;
@@ -282,9 +285,15 @@ export class Workspace {
      * Recursively walks a directory, yielding entries for files and directories.
      * Skips directories whose names are listed in `cfg.skipDirs`.
      *
+     * Only the initial root path is validated: a nonexistent or non-directory
+     * root rejects with an Error before any entry is produced. Failures on
+     * nested directories are reported through `onError` instead, so the walk
+     * continues with the remaining subtrees.
+     *
      * @param dir - Directory to walk.
      * @param onError - Optional callback invoked when a subdirectory cannot be read.
      *   Receives the directory path and the error. The walk continues with other subtrees.
+     * @throws {Error} If the root path does not exist or is not a directory.
      * @yields {WalkEntry} Entries for each file and subdirectory found.
      */
     async *walk(
@@ -293,19 +302,46 @@ export class Workspace {
     ): AsyncGenerator<{ filePath: string; dirent: import('node:fs').Dirent }> {
         const resolved = this.resolvePath(dir);
         if (!this.canRead(resolved)) return;
+        let st: fs.Stats;
+        try {
+            st = await fsp.stat(resolved);
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+                throw new Error(`Cannot walk '${resolved}': the path does not exist`, { cause: e });
+            }
+            throw new Error(`Cannot walk '${resolved}': ${(e as Error).message}`, { cause: e });
+        }
+        if (!st.isDirectory()) {
+            throw new Error(`Cannot walk '${resolved}': it is a file, not a directory`);
+        }
+        yield* this.walkDirectory(resolved, onError);
+    }
+
+    /**
+     * Recursion core of {@link Workspace.walk}: lists `dir`, yields its entries,
+     * and recurses into subdirectories. An unreadable directory is reported
+     * through `onError` while the remaining subtrees are still walked.
+     *
+     * @param dir - Absolute directory to list.
+     * @param onError - Optional callback invoked when this directory cannot be read.
+     */
+    private async *walkDirectory(
+        dir: string,
+        onError?: (dirPath: string, error: Error) => void
+    ): AsyncGenerator<{ filePath: string; dirent: import('node:fs').Dirent }> {
         let entries: import('node:fs').Dirent[];
         try {
-            entries = await fsp.readdir(resolved, { withFileTypes: true });
+            entries = await fsp.readdir(dir, { withFileTypes: true });
         } catch (e) {
-            onError?.(resolved, e as Error);
+            onError?.(dir, e as Error);
             return;
         }
         for (const entry of entries) {
-            const fullPath = path.join(resolved, entry.name);
+            const fullPath = path.join(dir, entry.name);
             if (entry.isDirectory()) {
                 if (this.cfg.skipDirs.includes(entry.name)) continue;
                 yield { filePath: fullPath, dirent: entry };
-                yield* this.walk(fullPath, onError);
+                yield* this.walkDirectory(fullPath, onError);
             } else if (entry.isFile()) {
                 yield { filePath: fullPath, dirent: entry };
             }

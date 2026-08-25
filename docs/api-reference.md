@@ -62,7 +62,7 @@ const workspace = new Workspace(new DirectoryConfiguration([
 | `skipDirs` | Directory names skipped when walking |
 | `resolveSymlinks` | Whether symlink resolution is enabled |
 | `pathHint(raw, resolved)` | Diagnostic hint for failed access checks |
-| `walk(dir, onError?)` | Async generator yielding `WalkEntry` for files and directories |
+| `walk(dir, onError?)` | Async generator yielding `WalkEntry` for files and directories; throws when the root path does not exist or is not a directory (`onError` only fires for nested subdirectories) |
 
 ## SwitchWorkspaceTool (tool name: `switch_workspace`)
 

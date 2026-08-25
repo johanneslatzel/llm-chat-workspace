@@ -77,12 +77,9 @@ export class DirectoryConfiguration {
      * Deduplicates directory accesses: exact duplicates are collapsed, and for
      * any path that appears multiple times the outcome depends on
      * {@link AccessPrecedence} — write-wins keeps write access; last-added-wins
-     * keeps the last supplied access. Returns a new configuration that preserves
-     * all other settings, including the precedence mode.
-     *
-     * @returns A new directory configuration with deduplicated accesses.
+     * keeps the last supplied access. Mutates `this.accesses` in place.
      */
-    deduplicate(): DirectoryConfiguration {
+    deduplicate(): void {
         const seen = new Map<string, AccessType>();
         for (const a of this.accesses) {
             if (this.precedence === AccessPrecedence.LastAddedWins) {
@@ -95,13 +92,7 @@ export class DirectoryConfiguration {
                 }
             }
         }
-        return new DirectoryConfiguration(
-            Array.from(seen.entries()).map(([path, type]) => ({ type, path })),
-            this.skipDirs,
-            this.resolveSymlinks,
-            this.workspacePath,
-            this.precedence
-        );
+        this.accesses = Array.from(seen.entries()).map(([path, type]) => ({ type, path }));
     }
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import { symlinkSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { DirectoryConfiguration } from '../../src/lib/config.js';
 import { Workspace } from '../../src/lib/workspace.js';
 import { AccessPrecedence, AccessType } from '../../src/lib/types.js';
@@ -8,65 +8,71 @@ import { withTempDir } from '../helper/temp-fs.js';
 
 describe('DirectoryConfiguration.deduplicate', () => {
     it('removes read access when write access exists for the same path', () => {
-        const result = new DirectoryConfiguration(
+        const dc = new DirectoryConfiguration(
             [
                 { type: AccessType.Read, path: '/tmp' },
                 { type: AccessType.Write, path: '/tmp' },
             ],
-        ).deduplicate();
-        expect(result.accesses).toHaveLength(1);
-        expect(result.accesses[0]!.type).toBe(AccessType.Write);
-        expect(result.accesses[0]!.path).toBe(path.resolve('/tmp'));
+        );
+        dc.deduplicate();
+        expect(dc.accesses).toHaveLength(1);
+        expect(dc.accesses[0]!.type).toBe(AccessType.Write);
+        expect(dc.accesses[0]!.path).toBe(path.resolve('/tmp'));
     });
 
     it('removes duplicate read entries', () => {
-        const result = new DirectoryConfiguration(
+        const dc = new DirectoryConfiguration(
             [
                 { type: AccessType.Read, path: '/tmp' },
                 { type: AccessType.Read, path: '/tmp' },
             ],
-        ).deduplicate();
-        expect(result.accesses).toHaveLength(1);
-        expect(result.accesses[0]!.type).toBe(AccessType.Read);
-        expect(result.accesses[0]!.path).toBe(path.resolve('/tmp'));
+        );
+        dc.deduplicate();
+        expect(dc.accesses).toHaveLength(1);
+        expect(dc.accesses[0]!.type).toBe(AccessType.Read);
+        expect(dc.accesses[0]!.path).toBe(path.resolve('/tmp'));
     });
 
     it('removes duplicate write entries', () => {
-        const result = new DirectoryConfiguration(
+        const dc = new DirectoryConfiguration(
             [
                 { type: AccessType.Write, path: '/tmp' },
                 { type: AccessType.Write, path: '/tmp' },
             ],
-        ).deduplicate();
-        expect(result.accesses).toHaveLength(1);
-        expect(result.accesses[0]!.type).toBe(AccessType.Write);
-        expect(result.accesses[0]!.path).toBe(path.resolve('/tmp'));
+        );
+        dc.deduplicate();
+        expect(dc.accesses).toHaveLength(1);
+        expect(dc.accesses[0]!.type).toBe(AccessType.Write);
+        expect(dc.accesses[0]!.path).toBe(path.resolve('/tmp'));
     });
 
     it('keeps distinct paths separate', () => {
-        const result = new DirectoryConfiguration(
+        const dc = new DirectoryConfiguration(
             [
                 { type: AccessType.Read, path: '/var/log' },
                 { type: AccessType.Write, path: '/tmp' },
             ],
-        ).deduplicate();
-        expect(result.accesses).toHaveLength(2);
+        );
+        dc.deduplicate();
+        expect(dc.accesses).toHaveLength(2);
     });
 
     it('returns empty for empty input', () => {
-        const result = new DirectoryConfiguration([]).deduplicate();
-        expect(result.accesses).toHaveLength(0);
+        const dc = new DirectoryConfiguration([]);
+        dc.deduplicate();
+        expect(dc.accesses).toHaveLength(0);
     });
 
     it('write overrides read for same path regardless of order', () => {
-        const result = new DirectoryConfiguration(
+        const dc = new DirectoryConfiguration(
             [
                 { type: AccessType.Write, path: '/tmp' },
                 { type: AccessType.Read, path: '/tmp' },
             ],
-        ).deduplicate();
-        expect(result.accesses).toHaveLength(1);
-        expect(result.accesses[0]!.type).toBe(AccessType.Write);
+        );
+        dc.deduplicate();
+        expect(dc.accesses).toHaveLength(1);
+        expect(dc.accesses[0]!.type).toBe(AccessType.Write);
     });
 
     describe('with AccessPrecedence.LastAddedWins', () => {
@@ -81,47 +87,52 @@ describe('DirectoryConfiguration.deduplicate', () => {
         }
 
         it('keeps the last-supplied access when a read follows a write', () => {
-            const result = last([
+            const dc = last([
                 { type: AccessType.Write, path: '/tmp' },
                 { type: AccessType.Read, path: '/tmp' },
-            ]).deduplicate();
-            expect(result.accesses).toHaveLength(1);
-            expect(result.accesses[0]!.type).toBe(AccessType.Read);
-            expect(result.accesses[0]!.path).toBe(path.resolve('/tmp'));
+            ]);
+            dc.deduplicate();
+            expect(dc.accesses).toHaveLength(1);
+            expect(dc.accesses[0]!.type).toBe(AccessType.Read);
+            expect(dc.accesses[0]!.path).toBe(path.resolve('/tmp'));
         });
 
         it('keeps the last-supplied access when a write follows a read', () => {
-            const result = last([
+            const dc = last([
                 { type: AccessType.Read, path: '/tmp' },
                 { type: AccessType.Write, path: '/tmp' },
-            ]).deduplicate();
-            expect(result.accesses).toHaveLength(1);
-            expect(result.accesses[0]!.type).toBe(AccessType.Write);
+            ]);
+            dc.deduplicate();
+            expect(dc.accesses).toHaveLength(1);
+            expect(dc.accesses[0]!.type).toBe(AccessType.Write);
         });
 
         it('collapses exact duplicates', () => {
-            const result = last([
+            const dc = last([
                 { type: AccessType.Read, path: '/tmp' },
                 { type: AccessType.Read, path: '/tmp' },
-            ]).deduplicate();
-            expect(result.accesses).toHaveLength(1);
-            expect(result.accesses[0]!.type).toBe(AccessType.Read);
+            ]);
+            dc.deduplicate();
+            expect(dc.accesses).toHaveLength(1);
+            expect(dc.accesses[0]!.type).toBe(AccessType.Read);
         });
 
         it('keeps distinct paths separate', () => {
-            const result = last([
+            const dc = last([
                 { type: AccessType.Read, path: '/var/log' },
                 { type: AccessType.Write, path: '/tmp' },
-            ]).deduplicate();
-            expect(result.accesses).toHaveLength(2);
+            ]);
+            dc.deduplicate();
+            expect(dc.accesses).toHaveLength(2);
         });
 
         it('preserves the precedence mode through deduplicate', () => {
-            const result = last([
+            const dc = last([
                 { type: AccessType.Write, path: '/tmp' },
                 { type: AccessType.Read, path: '/tmp' },
-            ]).deduplicate();
-            expect(result.precedence).toBe(AccessPrecedence.LastAddedWins);
+            ]);
+            dc.deduplicate();
+            expect(dc.precedence).toBe(AccessPrecedence.LastAddedWins);
         });
     });
 });
@@ -324,20 +335,83 @@ describe('Workspace.walk', () => {
         });
     });
 
-    it('invokes onError when a directory cannot be read', async () => {
+    it('throws when the root path does not exist', async () => {
         await withTempDir(async (dir) => {
-            const errors: Array<{ dirPath: string; error: Error }> = [];
             const ws = new Workspace(new DirectoryConfiguration([{ type: AccessType.Write, path: dir }]));
             const missing = path.join(dir, 'missing');
             const entries: Array<{ filePath: string; dirent: import('node:fs').Dirent }> = [];
-            for await (const entry of ws.walk(missing, (dirPath, error) => {
-                errors.push({ dirPath, error });
-            })) {
-                entries.push(entry);
-            }
-            expect(errors).toHaveLength(1);
-            expect(errors[0]!.dirPath).toBe(missing);
+            const collect = async (): Promise<void> => {
+                for await (const entry of ws.walk(missing)) {
+                    entries.push(entry);
+                }
+            };
+            await expect(collect).rejects.toThrow('Cannot walk');
+            await expect(collect).rejects.toThrow('the path does not exist');
             expect(entries).toHaveLength(0);
+        });
+    });
+
+    it('throws when the root path is a file', async () => {
+        await withTempDir(async (dir) => {
+            const ws = new Workspace(new DirectoryConfiguration([{ type: AccessType.Write, path: dir }]));
+            const file = path.join(dir, 'file.txt');
+            writeFileSync(file, 'data');
+            const entries: Array<{ filePath: string; dirent: import('node:fs').Dirent }> = [];
+            const collect = async (): Promise<void> => {
+                for await (const entry of ws.walk(file)) {
+                    entries.push(entry);
+                }
+            };
+            await expect(collect).rejects.toThrow('it is a file, not a directory');
+            await expect(collect).rejects.toThrow(file);
+            expect(entries).toHaveLength(0);
+        });
+    });
+
+    it('reports the underlying stat error when the root cannot be stat-ed', async () => {
+        await withTempDir(async (dir) => {
+            const ws = new Workspace(new DirectoryConfiguration([{ type: AccessType.Write, path: dir }]));
+            const blocker = path.join(dir, 'blocker.txt');
+            writeFileSync(blocker, 'data');
+            const through = path.join(blocker, 'child');
+            const entries: Array<{ filePath: string; dirent: import('node:fs').Dirent }> = [];
+            const collect = async (): Promise<void> => {
+                for await (const entry of ws.walk(through)) {
+                    entries.push(entry);
+                }
+            };
+            await expect(collect).rejects.toThrow('Cannot walk');
+            await expect(collect).rejects.toThrow(/ENOTDIR|not a directory/i);
+            expect(entries).toHaveLength(0);
+        });
+    });
+
+    it('invokes onError when a nested directory cannot be read', async () => {
+        await withTempDir(async (dir) => {
+            const allowed = path.join(dir, 'allowed');
+            const locked = path.join(allowed, 'locked');
+            mkdirSync(path.join(allowed, 'ok'), { recursive: true });
+            mkdirSync(locked, { recursive: true });
+            writeFileSync(path.join(allowed, 'ok', 'fine.txt'), 'fine');
+            chmodSync(locked, 0o000);
+            try {
+                const errors: Array<{ dirPath: string; error: Error }> = [];
+                const ws = new Workspace(new DirectoryConfiguration([{ type: AccessType.Write, path: dir }]));
+                const entries: Array<{ filePath: string; dirent: import('node:fs').Dirent }> = [];
+                for await (const entry of ws.walk(allowed, (dirPath, error) => {
+                    errors.push({ dirPath, error });
+                })) {
+                    entries.push(entry);
+                }
+                expect(errors).toHaveLength(1);
+                expect(errors[0]!.dirPath).toBe(locked);
+                expect(errors[0]!.error).toBeInstanceOf(Error);
+                const filePaths = entries.map((e) => e.filePath);
+                expect(filePaths).toContain(path.join(allowed, 'ok'));
+                expect(filePaths).toContain(path.join(allowed, 'ok', 'fine.txt'));
+            } finally {
+                chmodSync(locked, 0o755);
+            }
         });
     });
 
@@ -550,8 +624,8 @@ describe('DirectoryConfiguration.resolveSymlinks', () => {
             true,
             '/workspace',
         );
-        const deduped = dc.deduplicate();
-        expect(deduped.workspacePath).toBe('/workspace');
+        dc.deduplicate();
+        expect(dc.workspacePath).toBe('/workspace');
     });
 
     it('is preserved through deduplicate', () => {
@@ -563,8 +637,8 @@ describe('DirectoryConfiguration.resolveSymlinks', () => {
             undefined,
             true,
         );
-        const deduped = dc.deduplicate();
-        expect(deduped.resolveSymlinks).toBe(true);
+        dc.deduplicate();
+        expect(dc.resolveSymlinks).toBe(true);
     });
 });
 
@@ -964,4 +1038,13 @@ describe('Workspace.getConfiguration', () => {
         expect(ws.getAccesses()).toHaveLength(1);
         expect(ws.skipDirs).toEqual(['node_modules']);
     });
+
+    it('config getter returns the live config', () => {
+        const ws = new Workspace(new DirectoryConfiguration(
+            [{ type: AccessType.Write, path: '/a' }],
+        ));
+        ws.config.precedence = AccessPrecedence.LastAddedWins;
+        expect(ws.getConfiguration().precedence).toBe(AccessPrecedence.LastAddedWins);
+    });
 });
+
