@@ -17,8 +17,10 @@ Workspace and path-access management for the [`llm-chat`](https://github.com/joh
 
 - `DirectoryConfiguration`: defines which directories are accessible (read and/or write), at what permission level, and how duplicate accesses for the same path are resolved (write-wins by default, or last-added-wins)
 - `Workspace`: tracks the active workspace path and enforces read/write access control for all file operations; mutex-guarded, thread-safe `switchWorkspace()` with an optional `onSwitch` hook; optional symlink resolution to block path traversal
-- `SwitchWorkspaceTool`: `llm-chat` tool that changes the active workspace directory within configured accessible directories
+- `SwitchWorkspaceTool`: `llm-chat-tool` tool that changes the active workspace directory within configured accessible directories
 - `walk()`: recursive directory traversal that skips configured directories (e.g. `node_modules`, `.git`)
+- `WorkspaceStore`: session-agnostic ephemeral workspace lifecycle with byte accounting, pinning, global caps, and LRU eviction
+- `EphemeralWorkspaceProvisioner`: private temp-directory workspaces restricted to a single writable root
 
 ## Prerequisites
 

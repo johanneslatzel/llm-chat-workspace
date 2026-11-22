@@ -13,12 +13,12 @@ import {
     AccessType,
     DirectoryConfiguration,
     Workspace,
-    SwitchWorkspaceTool,
+    SwitchWorkspaceTool
 } from '@johannes.latzel/llm-chat-workspace';
 
 const config = new DirectoryConfiguration([
     { type: AccessType.Read, path: '/var/log' },
-    { type: AccessType.Write, path: '/home/project' },
+    { type: AccessType.Write, path: '/home/project' }
 ]);
 
 const workspace = new Workspace(config);

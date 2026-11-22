@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { ResultStatus, type ToolResult } from '@johannes.latzel/llm-chat';
+import { ResultStatus, type ToolResult } from '@johannes.latzel/llm-chat-tool';
 import { SwitchWorkspaceTool } from '../../src/index.js';
 import { Workspace } from '../../src/lib/workspace.js';
 import { AccessType } from '../../src/lib/types.js';
@@ -15,7 +15,7 @@ describe('SwitchWorkspaceTool', () => {
         tmpDir = createTempDir();
         ws = new Workspace(new DirectoryConfiguration([{ type: AccessType.Write, path: tmpDir }]));
         createTempDirStructure(tmpDir, {
-            'subdir/file.txt': 'test',
+            'subdir/file.txt': 'test'
         });
     });
 
@@ -26,28 +26,28 @@ describe('SwitchWorkspaceTool', () => {
     it('switches to a valid subdirectory', async () => {
         const subdir = path.join(tmpDir, 'subdir');
         const tool = new SwitchWorkspaceTool(ws);
-        const [result] = await tool.execute({ path: subdir }) as [ToolResult];
+        const [result] = (await tool.execute({ path: subdir })) as [ToolResult];
         expect(result.status).toBe(ResultStatus.Success);
         expect(result.result).toContain('Switched workspace to:');
     });
 
     it('reports error for non-string path', async () => {
         const tool = new SwitchWorkspaceTool(ws);
-        const [result] = await tool.execute({ path: 123 }) as [ToolResult];
+        const [result] = (await tool.execute({ path: 123 })) as [ToolResult];
         expect(result.status).toBe(ResultStatus.Error);
         expect(result.result).toContain('path must be a non-empty string');
     });
 
     it('reports error for empty path', async () => {
         const tool = new SwitchWorkspaceTool(ws);
-        const [result] = await tool.execute({ path: '   ' }) as [ToolResult];
+        const [result] = (await tool.execute({ path: '   ' })) as [ToolResult];
         expect(result.status).toBe(ResultStatus.Error);
         expect(result.result).toContain('path must be a non-empty string');
     });
 
     it('reports error for path outside workspace', async () => {
         const tool = new SwitchWorkspaceTool(ws);
-        const [result] = await tool.execute({ path: '/etc' }) as [ToolResult];
+        const [result] = (await tool.execute({ path: '/etc' })) as [ToolResult];
         expect(result.status).toBe(ResultStatus.Error);
         expect(result.result).toContain('not within any configured directory');
     });

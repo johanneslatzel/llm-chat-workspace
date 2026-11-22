@@ -8,17 +8,19 @@
 
 ### Access model
 
-`DirectoryConfiguration` defines which directories are accessible and at what permission level. Each access entry pairs an `AccessType` (`read` or `write`) with an absolute directory path. The configuration can be built from constructor arguments or read from `LLM_CHAT_WORKSPACE_*` environment variables, and is deduplicated with write access taking precedence over read access.
+`DirectoryConfiguration` defines which directories are accessible and at what permission level. Each access entry pairs an `AccessType` (`read` or `write`) with an absolute directory path. The configuration can be built from constructor arguments or read from `LLM_CHAT_WORKSPACE_*` environment variables, and is deduplicated according to `precedence` (write-wins by default).
 
 ### Workspace
 
 The `Workspace` class enforces access control for all path operations:
 
 ```typescript
-const ws = new Workspace(new DirectoryConfiguration([
-    { type: AccessType.Read, path: '/var/log' },
-    { type: AccessType.Write, path: '/home/project' },
-]));
+const ws = new Workspace(
+    new DirectoryConfiguration([
+        { type: AccessType.Read, path: '/var/log' },
+        { type: AccessType.Write, path: '/home/project' }
+    ])
+);
 ```
 
 **Key methods:**
@@ -41,23 +43,45 @@ By default, symlinks are followed as-is: if a configured directory contains a sy
 
 **Access rules:**
 
-| Operation | Check |
-|-----------|-------|
+| Operation          | Check                           |
+| ------------------ | ------------------------------- |
 | `switch_workspace` | within any configured directory |
 
 ### Concurrency
 
-`switchWorkspace()` uses `async-mutex` to prevent concurrent switches from interleaving. After a successful switch, the optional `onSwitch` hook is awaited before the tool result is returned. This is how `llm-chat-shell` keeps its active bash session in sync with the workspace directory. The hook is not fired when the path is set in the constructor, and not fired when the switch throws.
+`switchWorkspace()` uses `async-mutex` to prevent concurrent switches from interleaving. After a successful switch, the optional `onSwitch` hook is awaited before the tool result is returned. The hook is not fired when the path is set in the constructor, and not fired when the switch throws.
 
 ### Tool classes
 
-`SwitchWorkspaceTool` extends `Tool` from `llm-chat`:
+`SwitchWorkspaceTool` extends `Tool` from `llm-chat-tool`:
 
 1. The constructor accepts a `Workspace` instance and calls `super(name, description, params)`
 2. `onExecute()` validates parameters, calls `switchWorkspace()`, and returns `PartialToolResult`
 3. All errors are caught and returned as plain-string messages. Tools never throw
 
+### Ephemeral workspaces
+
+The package also provides a session-agnostic store for short-lived workspaces.
+`EphemeralWorkspaceProvisioner` creates a private temp directory and a normal
+`Workspace` restricted to it. `WorkspaceStore` owns the lifetime, byte
+accounting, pinning, and LRU eviction:
+
+- `maxTotalBytes` caps the sum across every live workspace.
+- `maxBytesPerWorkspace` caps one workspace.
+- `maxWorkspaces` caps the number of live workspaces.
+- `maxFiles` caps files across every live workspace.
+- `maxFilesPerWorkspace` caps files in one workspace.
+- A `Map` maintains the access order used to choose eviction victims.
+- `acquire(id)` pins a workspace for one tool call and touches its LRU order.
+- `ensureCapacity(id, delta)` reserves room before a write and evicts other
+  least-recently-used unpinned workspaces when the global cap would be exceeded.
+- `dispose()` removes every workspace and its temp directory.
+
+The store knows only workspace ids, byte limits, and an opaque resource. It has
+no session, HTTP, or MCP concepts; a server can hold the process-global store
+and attach its own tool set to each workspace.
+
 ## Dependencies
 
-- `llm-chat`: framework providing `Tool`, `ToolParameters`, etc.
+- `llm-chat-tool`: framework providing `Tool`, `ToolParameters`, etc.
 - `async-mutex`: mutex used for thread-safe workspace switching

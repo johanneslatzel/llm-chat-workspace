@@ -20,10 +20,7 @@ export function createTempFile(dir: string, relativePath: string, content: strin
     return fullPath;
 }
 
-export function createTempDirStructure(
-    dir: string,
-    structure: Record<string, string>
-): void {
+export function createTempDirStructure(dir: string, structure: Record<string, string>): void {
     for (const [relativePath, content] of Object.entries(structure)) {
         createTempFile(dir, relativePath, content);
     }

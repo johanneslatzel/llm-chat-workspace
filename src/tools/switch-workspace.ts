@@ -4,7 +4,7 @@ import {
     Tool,
     ToolParameterProperty,
     ToolParameters
-} from '@johannes.latzel/llm-chat';
+} from '@johannes.latzel/llm-chat-tool';
 import type { Workspace } from '../lib/workspace.js';
 
 /** Tool that changes the current workspace path to a new directory within configured accessible directories. */
